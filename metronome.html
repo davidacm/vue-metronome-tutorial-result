@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+  <title>Metrónomo</title>
+  <link type="text/css" rel="stylesheet" href="https://unpkg.com/bootstrap@4.6.2/dist/css/bootstrap.min.css" />
+  <link type="text/css" rel="stylesheet" href="https://unpkg.com/bootstrap-vue@2.22.0/dist/bootstrap-vue.min.css" />
+  <script src="https://unpkg.com/vue@2.7.10/dist/vue.min.js"></script>
+  <script src="https://unpkg.com/bootstrap-vue@2.22.0/dist/bootstrap-vue.min.js"></script>
+</head>
+
+<body>
+  <div id="app" @keydown="onKey">
+    <b-container fluid>
+      <b-row>
+        <b-col>
+          <h1>El tempo actual es de {{curTempo}} bpm, y {{beats}} tiempos por compaz.</h1>
+          <p>Use la barra espaciadora para alternar el metrónomo</p>
+          <p>Presione el botón medir o pulse "f2" para medir el tempo de acuerdo a las pulsaciones detectadas.</p>
+          <p>Presione el botón reset o la tecla escape para restablecer los valores de la aplicación.</p>
+          <p>Para usuarios de lectores de pantalla: Algunos lectores capturan las teclas en las páginas web. Puede que debas desactivar el modo exploración o su equivalente para que las teclas rápidas funcionen correctamente.</p>
+        </b-col>
+      </b-row>
+      <b-row aria-labelm="tempo controls" role="region">
+        <b-col>
+          <b-button @click.prevent="reset">Reset</b-button>
+        </b-col>
+        <b-col>
+          <label for="itempo">tempo</label>
+          <input id="itempo" v-model.number.lazy="curTempo" autocomplete="off"  :aria-live="!isPlaying?'assertive': 'off'" aria-atomic="true">
+        </b-col>
+        <b-col>
+          <b-button block @click.prevent="onMeasure">Medir</b-button>
+        </b-col>
+      </b-row>
+
+      <b-row aria-label="measure controls" role="region">
+        <b-col>
+          <b-button @click.prevent="beats>1 && --beats" aria-label="menos" size="sm">-</b-button>
+        </b-col>
+        <b-col>
+          <label for="ibeats">beats</label>
+          <input id="ibeats" v-model.number="beats" autocomplete="off" aria-live="assertive" aria-atomic="true">
+        </b-col>
+        <b-col>
+          <b-button @click.prevent="++beats" size="sm">+</b-button>
+        </b-col>
+      </b-row>
+      <b-row>
+        <b-col>
+          <b-button @click.prevent="toggleMetronome" :pressed="isPlaying">
+            <span v-show="!isPlaying">Reproducir</span>
+            <span v-show="isPlaying">Detener</span>
+          </b-button>
+        </b-col>
+      </b-row>
+    </b-container>
+  </div>
+</body>
+
+</html>
+<script>
+const DEFAULT_BEATS = 4;
+const DEFAULT_TEMPO = 100;
+const MIN_TEMPO = 30;
+const MAX_TEMPO = 360;
+const MINUTE = 60000;
+
+function calcBeatDuration(bpm) {
+  return MINUTE / bpm;
+}
+
+
+var app = new Vue({
+  el: '#app',
+  data() {
+    return {
+      sCurTempo: DEFAULT_TEMPO,
+      sBeats: DEFAULT_BEATS,
+      curBeat: 0,
+      isPlaying: false,
+      beatTimer: null,
+      changedTempo: false,
+      measures: {
+        count: 0,
+        sumDurations: 0,
+        lastTime: 0
+      }
+    }
+  },
+
+  methods: {
+    onKey(e) {
+      k = e.key.toLowerCase();
+      switch(k) {
+        case "escape":
+          this.reset(e);
+          break;
+        case " ":
+          this.toggleMetronome();
+          break;
+        case "f2":
+          this.onMeasure();
+          break;
+      }
+    },
+
+    reset() {
+      this.curTempo = DEFAULT_TEMPO;
+      this.beats = DEFAULT_BEATS
+    },
+
+    onMeasure() {
+      let d = new Date().getTime();
+      if (this.measures.lastTime === 0) this.measures.lastTime = d;
+      else {
+        let duration = d - this.measures.lastTime;
+        this.measures.lastTime = d;
+        if (duration > calcBeatDuration(MIN_TEMPO)) {
+          // if the last measure is greater than the max beat duration (BPM) reset the sum of durations.
+          this.measures.count = 0;
+          this.measures.sumDurations = 0
+          return;
+        }
+        this.measures.sumDurations += duration;
+        ++this.measures.count;
+        if (this.measures.count < 2) return;
+        // multiplicar por 100 en el redondeo y luego dividir entre 100 para redondear a 2 decimales.
+        this.curTempo = Math.round(MINUTE / (this.measures.sumDurations / this.measures.count) * 100) /100;
+      }
+    },
+
+    toggleMetronome() {
+      this.isPlaying = !this.isPlaying;
+      if (this.isPlaying){
+        this.beatTimer = setInterval(this.playBeat(), calcBeatDuration(this.sCurTempo));
+      }
+      else {
+        clearInterval(this.beatTimer);
+        this.curBeat = 0;
+      }
+    },
+
+    playBeat() {
+      if (this.curBeat >= this.sBeats) this.curBeat = 0;
+      ++this.curBeat;
+      if (this.curBeat === 1) {
+        new Audio("sounds/high.mp3").play();
+      }
+      else {
+        new Audio("sounds/low.mp3").play();
+      }
+      this.updateBeatDuration();
+      return this.playBeat;
+    },
+
+    updateBeatDuration() {
+      if (this.isPlaying && this.changedTempo) {
+        this.changedTempo = false;
+        clearInterval(this.beatTimer);
+        this.beatTimer = setInterval(this.playBeat, calcBeatDuration(this.sCurTempo));
+      }
+    }
+  },
+
+  computed: {
+    curTempo: {
+      get() {
+        return this.sCurTempo;
+      },
+      set(v) {
+        if (v >= MIN_TEMPO && v <= MAX_TEMPO) {
+          this.sCurTempo = v;
+          if (this.isPlaying) {
+            this.changedTempo = true;
+          }
+        }
+      }
+    },
+    beats: {
+      get() {
+        return this.sBeats;
+      },
+      set(v) {
+        if (v > 0) {
+          this.sBeats = v;
+        }
+      }
+    }
+  }
+});
+</script>
